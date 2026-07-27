@@ -1,0 +1,4 @@
+/target
+*.exe
+security_audit_report.md
+.trae/
