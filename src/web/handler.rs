@@ -1298,30 +1298,31 @@ fn index_html() -> String {
         }
     }
 
-    // ========== Thumbsticks (multi-touch safe via touch.identifier, Y inverted) ==========
+    // ========== Thumbsticks (origin at first touch, no direction until drag) ==========
     function setupThumbsticks() {
         function setupStick(el, innerEl, setX, setY) {
             if (!el || !innerEl) return;
             var activeTouchId = null;
             var radius = 36;
             var maxVal = 32767;
+            var originX = 0, originY = 0;
 
-            function getPos(touchOrMouse) {
-                var rect = el.getBoundingClientRect();
-                var cx = rect.left + rect.width/2, cy = rect.top + rect.height/2;
-                var vx = touchOrMouse.clientX - cx, vy = touchOrMouse.clientY - cy;
+            function doStart(clientX, clientY) {
+                originX = clientX;
+                originY = clientY;
+                setX(0); setY(0);
+                innerEl.style.transform = 'translate(-50%, -50%)';
+            }
+            function doUpdate(clientX, clientY) {
+                var vx = clientX - originX, vy = clientY - originY;
                 var dx, dy;
                 if (state.rotated) { dx = vy; dy = -vx; }
                 else { dx = vx; dy = vy; }
                 var dist = Math.sqrt(dx*dx + dy*dy);
                 if (dist > radius) { dx = dx/dist*radius; dy = dy/dist*radius; }
-                return {dx:dx, dy:dy};
-            }
-            function doUpdate(touchOrMouse) {
-                var pos = getPos(touchOrMouse);
-                setX(Math.round(pos.dx/radius*maxVal));
-                setY(Math.round(-pos.dy/radius*maxVal));
-                innerEl.style.transform = 'translate(calc(-50% + '+pos.dx+'px), calc(-50% + '+pos.dy+'px))';
+                setX(Math.round(dx/radius*maxVal));
+                setY(Math.round(-dy/radius*maxVal));
+                innerEl.style.transform = 'translate(calc(-50% + '+dx+'px), calc(-50% + '+dy+'px))';
             }
             function doReset() {
                 setX(0); setY(0);
@@ -1333,13 +1334,13 @@ fn index_html() -> String {
                 if (activeTouchId !== null) return;
                 var t = e.changedTouches[0];
                 activeTouchId = t.identifier;
-                doUpdate(t);
+                doStart(t.clientX, t.clientY);
             }, {passive:false});
             el.addEventListener('touchmove', function(e) {
                 e.preventDefault(); e.stopPropagation();
                 if (activeTouchId === null) return;
                 var t = findTouch(e, activeTouchId);
-                if (t) doUpdate(t);
+                if (t) doUpdate(t.clientX, t.clientY);
             }, {passive:false});
             function onTouchEnd(e) {
                 e.preventDefault(); e.stopPropagation();
@@ -1352,8 +1353,8 @@ fn index_html() -> String {
             // mouse fallback
             el.addEventListener('mousedown', function(e) {
                 e.preventDefault(); e.stopPropagation();
-                doUpdate(e);
-                function onMove(ev) { doUpdate(ev); }
+                doStart(e.clientX, e.clientY);
+                function onMove(ev) { doUpdate(ev.clientX, ev.clientY); }
                 function onUp(ev) { doReset(); document.removeEventListener('mousemove',onMove); document.removeEventListener('mouseup',onUp); }
                 document.addEventListener('mousemove',onMove);
                 document.addEventListener('mouseup',onUp);
