@@ -79,8 +79,14 @@ async fn main() {
     #[cfg(windows)]
     let gamepad = {
         info!("Initializing ViGEmBus gamepad manager...");
-        let manager = webpad::gamepad::GamepadManager::new().await;
-        GamepadHandle::new(Some(Arc::new(manager)))
+        match webpad::gamepad::GamepadManager::new().await {
+            Ok(manager) => GamepadHandle::new(Some(Arc::new(manager))),
+            Err(e) => {
+                warn!("ViGEmBus driver not available: {}", e);
+                print_vigembus_install_guide();
+                GamepadHandle::new(None::<Arc<webpad::gamepad::GamepadManager>>)
+            }
+        }
     };
     #[cfg(not(windows))]
     let gamepad = {
@@ -321,4 +327,38 @@ fn generate_self_signed_cert() -> Result<(String, String), Box<dyn std::error::E
     let cert_pem = cert.pem();
     let key_pem = key_pair.serialize_pem();
     Ok((cert_pem, key_pem))
+}
+
+/// 输出 ViGEmBus 驱动安装引导
+#[cfg(windows)]
+fn print_vigembus_install_guide() {
+    println!();
+    println!("╔══════════════════════════════════════════════════════════════╗");
+    println!("║  ViGEmBus 驱动未安装 — 虚拟手柄功能不可用                    ║");
+    println!("╠══════════════════════════════════════════════════════════════╣");
+    println!("║  WebPad 需要 ViGEmBus 驱动来创建虚拟 Xbox 360 手柄。         ║");
+    println!("║  服务仍可启动，但手机端连接后无法模拟手柄输入。               ║");
+    println!("║                                                              ║");
+    println!("║  安装方式（任选其一）：                                       ║");
+    println!("║  1. 下载安装器：                                              ║");
+    println!("║     https://github.com/nefarius/ViGEmBus/releases            ║");
+    println!("║  2. 使用 winget 安装：                                       ║");
+    println!("║     winget install Nefarius.ViGEmBus                         ║");
+    println!("║                                                              ║");
+    println!("║  安装后重启 WebPad 即可启用虚拟手柄功能。                     ║");
+    println!("╚══════════════════════════════════════════════════════════════╝");
+    println!();
+
+    // 检查可执行文件同目录下是否有捆绑的 ViGEmBus 安装器
+    if let Some(exe_dir) = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_path_buf())) {
+        for name in &["ViGEmBus_Setup.exe", "ViGEmBus_1.21.411_x64.msi", "ViGEmBus.msi"] {
+            let installer = exe_dir.join(name);
+            if installer.exists() {
+                println!("  检测到捆绑安装器：{}", installer.display());
+                println!("  请运行上述安装器完成驱动安装，然后重启 WebPad。");
+                println!();
+                break;
+            }
+        }
+    }
 }

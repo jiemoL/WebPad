@@ -83,24 +83,20 @@ pub struct GamepadManager {
 impl GamepadManager {
     /// 创建新的手柄管理器并连接 ViGEmBus 驱动
     ///
-    /// # Panics
-    ///
-    /// 如果 ViGEmBus 驱动未安装或连接失败，直接 panic。
-    /// 在 main 函数中调用，确保程序启动时即可检测到驱动是否可用。
-    pub async fn new() -> Self {
+    /// 返回 `Err(GamepadError::ConnectionFailed)` 如果驱动未安装或连接失败。
+    pub async fn new() -> Result<Self, GamepadError> {
         let client = spawn_blocking(move || {
             Client::connect().map_err(|e| GamepadError::ConnectionFailed(e.to_string()))
         })
         .await
-        .expect("spawn_blocking failed")
-        .expect("Failed to connect to ViGEmBus driver. Is the driver installed?");
+        .map_err(|_| GamepadError::ConnectionFailed("spawn_blocking join failed".into()))??;
 
-        Self {
+        Ok(Self {
             client: Arc::new(client),
             controllers: Arc::new(Mutex::new(HashMap::new())),
             next_id: AtomicUsize::new(1),
             shutdown: Arc::new(AtomicBool::new(false)),
-        }
+        })
     }
 
     /// 获取当前连接的控制器数量

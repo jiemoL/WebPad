@@ -1,0 +1,90 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Windows x64
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Build release binary
+        run: cargo build --release --target x86_64-pc-windows-msvc
+
+      - name: Run tests
+        run: cargo test --release --target x86_64-pc-windows-msvc
+
+      - name: Download ViGEmBus installer
+        shell: pwsh
+        run: |
+          $release = Invoke-RestMethod -Uri "https://api.github.com/repos/nefarius/ViGEmBus/releases/latest"
+          $asset = $release.assets | Where-Object { $_.name -like "*x64.msi" } | Select-Object -First 1
+          if ($asset) {
+            Invoke-WebRequest -Uri $asset.browser_download_url -OutFile "ViGEmBus_setup.msi"
+            Write-Host "Downloaded $($asset.name)"
+          } else {
+            Write-Host "No x64 MSI found in latest ViGEmBus release"
+          }
+
+      - name: Prepare release package
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          New-Item -ItemType Directory -Force -Path "release-package"
+          Copy-Item "target/x86_64-pc-windows-msvc/release/webpad.exe" "release-package/"
+          if (Test-Path "ViGEmBus_setup.msi") {
+            Copy-Item "ViGEmBus_setup.msi" "release-package/"
+          }
+          # Create a quick-start guide
+          @"
+          WebPad $tag - Virtual Gamepad Simulator
+          ========================================
+
+          Quick Start:
+            1. (Optional) Install ViGEmBus driver:
+               - Double-click ViGEmBus_setup.msi, or
+               - Run: winget install Nefarius.ViGEmBus
+            2. Run webpad.exe
+            3. Open the displayed URL on your phone
+            4. Enter the password shown in console
+
+          Without ViGEmBus driver, the server still runs but
+          virtual gamepad input will not work.
+
+          "@ | Set-Content "release-package/README.txt" -Encoding UTF8
+
+      - name: Create archive
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          Compress-Archive -Path "release-package/*" -DestinationPath "WebPad-${tag}-win-x64.zip"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: WebPad-${{ github.ref_name }}-win-x64.zip
+          generate_release_notes: true
+          draft: false

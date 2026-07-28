@@ -110,7 +110,7 @@ mod windows_tests {
     #[tokio::test]
     #[ignore = "requires ViGEmBus driver"]
     async fn manager_reports_controller_count() {
-        let manager = GamepadManager::new().await;
+        let manager = GamepadManager::new().await.unwrap();
         assert_eq!(manager.controller_count(), 0);
         manager.shutdown().await;
     }
@@ -118,7 +118,7 @@ mod windows_tests {
     #[tokio::test]
     #[ignore = "requires ViGEmBus driver"]
     async fn create_and_destroy_controller() {
-        let manager = GamepadManager::new().await;
+        let manager = GamepadManager::new().await.unwrap();
         let result = manager.create_controller().await;
         assert!(result.is_ok(), "Failed to create controller: {:?}", result.err());
         let (id, _rx) = result.unwrap();
@@ -131,7 +131,7 @@ mod windows_tests {
     #[tokio::test]
     #[ignore = "requires ViGEmBus driver"]
     async fn update_controller_state() {
-        let manager = GamepadManager::new().await;
+        let manager = GamepadManager::new().await.unwrap();
         let (id, _rx) = manager.create_controller().await.unwrap();
 
         let state = GamepadState {
@@ -149,7 +149,7 @@ mod windows_tests {
     #[tokio::test]
     #[ignore = "requires ViGEmBus driver"]
     async fn update_nonexistent_controller_fails() {
-        let manager = GamepadManager::new().await;
+        let manager = GamepadManager::new().await.unwrap();
         let state = GamepadState::default();
         let result = manager.update_state(999, &state).await;
         assert!(result.is_err());
@@ -159,7 +159,7 @@ mod windows_tests {
     #[tokio::test]
     #[ignore = "requires ViGEmBus driver"]
     async fn double_shutdown_is_safe() {
-        let manager = GamepadManager::new().await;
+        let manager = GamepadManager::new().await.unwrap();
         manager.shutdown().await;
         manager.shutdown().await;
     }
@@ -167,7 +167,7 @@ mod windows_tests {
     #[tokio::test]
     #[ignore = "requires ViGEmBus driver"]
     async fn create_controller_returns_rumble_receiver() {
-        let manager = GamepadManager::new().await;
+        let manager = GamepadManager::new().await.unwrap();
         let (id, mut rx) = manager.create_controller().await.expect("create failed");
         // 通道刚创建时应为空（无震动事件）
         assert!(rx.try_recv().is_err());
