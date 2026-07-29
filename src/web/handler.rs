@@ -607,7 +607,7 @@ async fn handle_auth_request(
 
 /// 生成首页 HTML
 fn index_html() -> String {
-    r#"<!DOCTYPE html>
+    r##"<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
@@ -829,6 +829,64 @@ fn index_html() -> String {
         .controls {
             transform-origin: top left;
         }
+
+        /* === 设置面板 === */
+        #settingsPanel {
+            display: none;
+            position: fixed; top: 0; left: 0;
+            width: 100vw; height: 100vh;
+            z-index: 600;
+            background: rgba(0,0,0,0.85);
+            align-items: center; justify-content: center;
+        }
+        #settingsPanel.active { display: flex; }
+        .layout-item {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 6px 8px; border-radius: 6px; margin-bottom: 4px;
+            background: rgba(255,255,255,0.04); font-size: 13px;
+        }
+        .layout-item.active {
+            background: rgba(96,165,250,0.2);
+            border: 1px solid rgba(96,165,250,0.4);
+        }
+        .layout-item button {
+            background: none; border: none; color: rgba(255,255,255,0.6);
+            cursor: pointer; font-size: 12px; padding: 2px 6px;
+        }
+        .layout-item button:hover { color: #fff; }
+        body.edit-mode .shoulder-btn,
+        body.edit-mode .trigger-bar,
+        body.edit-mode .thumbstick,
+        body.edit-mode .dpad,
+        body.edit-mode .abxy-btn,
+        body.edit-mode .ss-btn {
+            cursor: move !important;
+        }
+        .edit-selected {
+            outline: 2px solid #fbbf24 !important;
+            z-index: 100 !important;
+        }
+        .edit-resize-handle {
+            position: absolute;
+            width: 18px; height: 18px;
+            background: #fbbf24;
+            border: 2px solid #fff;
+            border-radius: 3px;
+            z-index: 200;
+            touch-action: none;
+        }
+        .edit-resize-handle.nw { top: -9px; left: -9px; cursor: nw-resize; }
+        .edit-resize-handle.ne { top: -9px; right: -9px; cursor: ne-resize; }
+        .edit-resize-handle.sw { bottom: -9px; left: -9px; cursor: sw-resize; }
+        .edit-resize-handle.se { bottom: -9px; right: -9px; cursor: se-resize; }
+        .color-swatch {
+            width: 100%; aspect-ratio: 1;
+            border-radius: 4px; cursor: pointer;
+            border: 2px solid transparent;
+            transition: border-color 0.15s;
+        }
+        .color-swatch.active { border-color: #fff; }
+        .color-swatch:hover { border-color: rgba(255,255,255,0.5); }
     </style>
 </head>
 <body>
@@ -840,29 +898,29 @@ fn index_html() -> String {
         <div class="gamepad" id="gamepad">
             <div class="controls" id="controls">
                 <!-- LB 肩键 -->
-                <div class="shoulder-btn lb-btn" data-btn="lb">LB</div>
+                <div class="shoulder-btn lb-btn" data-btn="lb" data-layout-id="lb">LB</div>
                 <!-- RB 肩键 -->
-                <div class="shoulder-btn rb-btn" data-btn="rb">RB</div>
+                <div class="shoulder-btn rb-btn" data-btn="rb" data-layout-id="rb">RB</div>
                 <!-- LT 扳机 -->
-                <div class="trigger-bar left-trigger" id="leftTrigger">
+                <div class="trigger-bar left-trigger" id="leftTrigger" data-layout-id="lt">
                     <span class="trigger-label">LT</span>
                     <div class="trigger-fill" style="height:0%"></div>
                 </div>
                 <!-- RT 扳机 -->
-                <div class="trigger-bar right-trigger" id="rightTrigger">
+                <div class="trigger-bar right-trigger" id="rightTrigger" data-layout-id="rt">
                     <span class="trigger-label">RT</span>
                     <div class="trigger-fill" style="height:0%"></div>
                 </div>
                 <!-- 左摇杆 -->
-                <div class="thumbstick left-stick" id="leftStick">
+                <div class="thumbstick left-stick" id="leftStick" data-layout-id="leftStick">
                     <div class="thumbstick-inner" id="leftStickInner"></div>
                 </div>
                 <!-- 右摇杆 -->
-                <div class="thumbstick right-stick" id="rightStick">
+                <div class="thumbstick right-stick" id="rightStick" data-layout-id="rightStick">
                     <div class="thumbstick-inner" id="rightStickInner"></div>
                 </div>
                 <!-- 十字键 -->
-                <div class="dpad" id="dpad">
+                <div class="dpad" id="dpad" data-layout-id="dpad">
                     <div class="dpad-center"></div>
                     <div class="dpad-btn up" data-btn="up">&#9650;</div>
                     <div class="dpad-btn down" data-btn="down">&#9660;</div>
@@ -870,15 +928,53 @@ fn index_html() -> String {
                     <div class="dpad-btn right" data-btn="right">&#9654;</div>
                 </div>
                 <!-- ABXY 按钮 -->
-                <div class="abxy-btn y" data-btn="y">Y</div>
-                <div class="abxy-btn a" data-btn="a">A</div>
-                <div class="abxy-btn x" data-btn="x">X</div>
-                <div class="abxy-btn b" data-btn="b">B</div>
+                <div class="abxy-btn y" data-btn="y" data-layout-id="y">Y</div>
+                <div class="abxy-btn a" data-btn="a" data-layout-id="a">A</div>
+                <div class="abxy-btn x" data-btn="x" data-layout-id="x">X</div>
+                <div class="abxy-btn b" data-btn="b" data-layout-id="b">B</div>
                 <!-- Back / Start -->
-                <div class="ss-btn back-btn" data-btn="select">BACK</div>
-                <div class="ss-btn start-btn" data-btn="start">START</div>
+                <div class="ss-btn back-btn" data-btn="select" data-layout-id="back">BACK</div>
+                <div class="ss-btn start-btn" data-btn="start" data-layout-id="start">START</div>
             </div>
         </div>
+    </div>
+    <button id="settingsBtn" style="position:fixed;top:28px;right:8px;z-index:500;width:32px;height:32px;border:none;border-radius:50%;background:rgba(255,255,255,0.1);color:#fff;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;">&#9881;</button>
+    <div id="settingsPanel">
+      <div style="background:#1a1a2e;border:1px solid rgba(255,255,255,0.15);border-radius:16px;padding:20px;width:300px;max-height:80vh;overflow-y:auto;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <h2 style="font-size:16px;">设置</h2>
+          <button id="closeSettings" style="background:none;border:none;color:#fff;font-size:18px;cursor:pointer;">&times;</button>
+        </div>
+        <div style="margin-bottom:12px;">
+          <label style="display:block;font-size:12px;color:rgba(255,255,255,0.6);margin-bottom:4px;">背景颜色</label>
+          <div id="bgColorPicker" style="display:flex;flex-direction:column;gap:6px;">
+            <div id="colorPalette" style="display:grid;grid-template-columns:repeat(8,1fr);gap:3px;"></div>
+            <div style="display:flex;align-items:center;gap:4px;">
+              <span style="font-size:11px;color:rgba(255,255,255,0.5);">#</span>
+              <input type="text" id="bgColorHex" value="1a1a2e" maxlength="6" style="flex:1;padding:4px 8px;border:1px solid rgba(255,255,255,0.15);border-radius:4px;background:rgba(255,255,255,0.05);color:#fff;font-size:12px;outline:none;font-family:monospace;">
+              <div id="bgColorPreview" style="width:24px;height:24px;border-radius:4px;border:1px solid rgba(255,255,255,0.2);background:#1a1a2e;"></div>
+            </div>
+          </div>
+        </div>
+        <div style="margin-bottom:12px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+            <label style="font-size:12px;color:rgba(255,255,255,0.6);">布局</label>
+            <button id="newLayoutBtn" style="padding:2px 8px;border:none;border-radius:4px;background:#4ade80;color:#000;font-size:11px;cursor:pointer;">+ 新建</button>
+          </div>
+          <div id="layoutList" style="max-height:150px;overflow-y:auto;"></div>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          <button id="enterEditBtn" style="flex:1;padding:8px;border:none;border-radius:6px;background:#60a5fa;color:#fff;font-size:12px;cursor:pointer;">编辑布局</button>
+          <button id="exportLayoutBtn" style="flex:1;padding:8px;border:none;border-radius:6px;background:rgba(255,255,255,0.1);color:#fff;font-size:12px;cursor:pointer;">导出</button>
+          <button id="importLayoutBtn" style="flex:1;padding:8px;border:none;border-radius:6px;background:rgba(255,255,255,0.1);color:#fff;font-size:12px;cursor:pointer;">导入</button>
+        </div>
+        <input type="file" id="importFile" accept=".json" style="display:none;">
+      </div>
+    </div>
+    <div id="editToolbar" style="display:none;position:fixed;bottom:10px;left:50%;transform:translateX(-50%);z-index:700;background:rgba(0,0,0,0.8);padding:8px 16px;border-radius:8px;gap:8px;align-items:center;">
+      <span style="font-size:12px;color:rgba(255,255,255,0.7);">编辑模式</span>
+      <button id="saveEditBtn" style="padding:4px 10px;border:none;border-radius:4px;background:#4ade80;color:#000;font-size:12px;cursor:pointer;">保存</button>
+      <button id="cancelEditBtn" style="padding:4px 10px;border:none;border-radius:4px;background:#f87171;color:#fff;font-size:12px;cursor:pointer;">取消</button>
     </div>
     <script>
 (function() {
@@ -906,7 +1002,8 @@ fn index_html() -> String {
         heartbeatTimeout: 12000,
         framesSent: 0,
         fpsStartTime: Date.now(),
-        rotated: false
+        rotated: false,
+        editMode: false
     };
 
     var BTN = {
@@ -1126,8 +1223,8 @@ fn index_html() -> String {
             if (el.id === 'dpad') return;
             var bit = btnMap[el.dataset.btn];
             if (bit === undefined) return;
-            function press(e) { e.preventDefault(); e.stopPropagation(); state.buttons |= bit; el.classList.add('pressed'); }
-            function release(e) { e.preventDefault(); e.stopPropagation(); state.buttons &= ~bit; el.classList.remove('pressed'); }
+            function press(e) { if (state.editMode) return; e.preventDefault(); e.stopPropagation(); state.buttons |= bit; el.classList.add('pressed'); }
+            function release(e) { if (state.editMode) return; e.preventDefault(); e.stopPropagation(); state.buttons &= ~bit; el.classList.remove('pressed'); }
             el.addEventListener('touchstart', press, {passive:false});
             el.addEventListener('touchend', release, {passive:false});
             el.addEventListener('touchcancel', release, {passive:false});
@@ -1143,6 +1240,7 @@ fn index_html() -> String {
             if (!el) return;
             var activeTouchId = null;
             el.addEventListener('touchstart', function(e) {
+                if (state.editMode) return;
                 e.preventDefault(); e.stopPropagation();
                 if (activeTouchId !== null) return; // already tracking a finger
                 var t = e.changedTouches[0];
@@ -1150,12 +1248,14 @@ fn index_html() -> String {
                 doUpdate(t);
             }, {passive:false});
             el.addEventListener('touchmove', function(e) {
+                if (state.editMode) return;
                 e.preventDefault(); e.stopPropagation();
                 if (activeTouchId === null) return;
                 var t = findChangedTouch(e, activeTouchId);
                 if (t) doUpdate(t);
             }, {passive:false});
             function onTouchEnd(e) {
+                if (state.editMode) return;
                 e.preventDefault(); e.stopPropagation();
                 if (activeTouchId === null) return;
                 var t = findChangedTouch(e, activeTouchId);
@@ -1165,6 +1265,7 @@ fn index_html() -> String {
             el.addEventListener('touchcancel', onTouchEnd, {passive:false});
             // mouse fallback
             el.addEventListener('mousedown', function(e) {
+                if (state.editMode) return;
                 e.preventDefault(); e.stopPropagation();
                 doUpdate(e);
                 function onMove(ev) { doUpdate(ev); }
@@ -1260,6 +1361,7 @@ fn index_html() -> String {
         }
 
         el.addEventListener('touchstart', function(e) {
+            if (state.editMode) return;
             e.preventDefault(); e.stopPropagation();
             if (activeTouchId !== null) return;
             var t = e.changedTouches[0];
@@ -1267,12 +1369,14 @@ fn index_html() -> String {
             getDirection(t);
         }, {passive:false});
         el.addEventListener('touchmove', function(e) {
+            if (state.editMode) return;
             e.preventDefault(); e.stopPropagation();
             if (activeTouchId === null) return;
             var t = findTouch(e, activeTouchId);
             if (t) getDirection(t);
         }, {passive:false});
         function onTouchEnd(e) {
+            if (state.editMode) return;
             e.preventDefault(); e.stopPropagation();
             if (activeTouchId === null) return;
             var t = findTouch(e, activeTouchId);
@@ -1282,6 +1386,7 @@ fn index_html() -> String {
         el.addEventListener('touchcancel', onTouchEnd, {passive:false});
         // mouse fallback
         el.addEventListener('mousedown', function(e) {
+            if (state.editMode) return;
             e.preventDefault(); e.stopPropagation();
             getDirection(e);
             function onMove(ev) { getDirection(ev); }
@@ -1330,6 +1435,7 @@ fn index_html() -> String {
             }
 
             el.addEventListener('touchstart', function(e) {
+                if (state.editMode) return;
                 e.preventDefault(); e.stopPropagation();
                 if (activeTouchId !== null) return;
                 var t = e.changedTouches[0];
@@ -1337,12 +1443,14 @@ fn index_html() -> String {
                 doStart(t.clientX, t.clientY);
             }, {passive:false});
             el.addEventListener('touchmove', function(e) {
+                if (state.editMode) return;
                 e.preventDefault(); e.stopPropagation();
                 if (activeTouchId === null) return;
                 var t = findTouch(e, activeTouchId);
                 if (t) doUpdate(t.clientX, t.clientY);
             }, {passive:false});
             function onTouchEnd(e) {
+                if (state.editMode) return;
                 e.preventDefault(); e.stopPropagation();
                 if (activeTouchId === null) return;
                 var t = findTouch(e, activeTouchId);
@@ -1352,6 +1460,7 @@ fn index_html() -> String {
             el.addEventListener('touchcancel', onTouchEnd, {passive:false});
             // mouse fallback
             el.addEventListener('mousedown', function(e) {
+                if (state.editMode) return;
                 e.preventDefault(); e.stopPropagation();
                 doStart(e.clientX, e.clientY);
                 function onMove(ev) { doUpdate(ev.clientX, ev.clientY); }
@@ -1371,6 +1480,483 @@ fn index_html() -> String {
             function(v) { state.thumbLX = v; }, function(v) { state.thumbLY = v; });
         setupStick(dom.rightStick, dom.rightStickInner,
             function(v) { state.thumbRX = v; }, function(v) { state.thumbRY = v; });
+    }
+
+    var LS_KEY = 'webpad_layouts_v2';
+    var LAYOUT_ELEMENTS = ['lb','rb','lt','rt','leftStick','rightStick','dpad','y','a','x','b','back','start'];
+
+    function getDefaultLayout() {
+        return {
+            id: 'default',
+            name: '默认布局',
+            bgColor: '#1a1a2e',
+            elements: {
+                lb: { left: '11.7%', top: '37px', width: '100px', height: '35px' },
+                rb: { right: '11.7%', top: '35px', width: '100px', height: '35px' },
+                lt: { left: '32.9%', top: '100px', width: '45px', height: '180px' },
+                rt: { right: '32.9%', top: '100px', width: '45px', height: '180px' },
+                leftStick: { left: '10.6%', top: '104px', width: '117px', height: '117px' },
+                rightStick: { right: '10.6%', bottom: '30px', width: '117px', height: '117px' },
+                dpad: { left: '8.6%', bottom: '25px', width: '145px', height: '135px' },
+                y: { right: '17.1%', top: '95px', width: '40px', height: '40px' },
+                a: { right: '17.1%', top: '180px', width: '40px', height: '40px' },
+                x: { right: '22.9%', top: '140px', width: '40px', height: '40px' },
+                b: { right: '11.4%', top: '140px', width: '40px', height: '40px' },
+                back: { left: '37.1%', top: '300px', width: '60px', height: '22px' },
+                start: { right: '37.1%', top: '300px', width: '60px', height: '22px' }
+            }
+        };
+    }
+
+    var LayoutManager = {
+        data: null,
+        init: function() {
+            this.load();
+            if (!this.data) {
+                this.data = { version: 2, activeLayoutId: 'default', layouts: [getDefaultLayout()] };
+                this.save();
+            }
+            var defaultIdx = -1;
+            for (var i = 0; i < this.data.layouts.length; i++) {
+                if (this.data.layouts[i].id === 'default') { defaultIdx = i; break; }
+            }
+            if (defaultIdx === -1) {
+                this.data.layouts.unshift(getDefaultLayout());
+            }
+            this.applyLayout(this.data.activeLayoutId);
+        },
+        load: function() {
+            try {
+                var raw = localStorage.getItem(LS_KEY);
+                if (raw) this.data = JSON.parse(raw);
+            } catch(e) {}
+        },
+        save: function() {
+            try { localStorage.setItem(LS_KEY, JSON.stringify(this.data)); } catch(e) {}
+        },
+        getLayout: function(id) {
+            for (var i = 0; i < this.data.layouts.length; i++) {
+                if (this.data.layouts[i].id === id) return this.data.layouts[i];
+            }
+            return null;
+        },
+        getActiveLayout: function() {
+            return this.getLayout(this.data.activeLayoutId);
+        },
+        setActiveLayout: function(id) {
+            this.data.activeLayoutId = id;
+            this.save();
+            this.applyLayout(id);
+        },
+        applyLayout: function(id) {
+            var layout = this.getLayout(id) || this.getLayout('default');
+            if (!layout) return;
+            if (layout.bgColor) document.body.style.background = layout.bgColor;
+            for (var key in layout.elements) {
+                var el = document.querySelector('[data-layout-id="' + key + '"]');
+                if (!el) continue;
+                var s = layout.elements[key];
+                el.style.left = s.left !== undefined ? s.left : '';
+                el.style.top = s.top !== undefined ? s.top : '';
+                el.style.right = s.right !== undefined ? s.right : '';
+                el.style.bottom = s.bottom !== undefined ? s.bottom : '';
+                el.style.width = s.width !== undefined ? s.width : '';
+                el.style.height = s.height !== undefined ? s.height : '';
+            }
+        },
+        createLayout: function(name, baseId) {
+            var base = this.getLayout(baseId) || this.getLayout('default');
+            var newLayout = {
+                id: 'layout_' + Date.now(),
+                name: name || '新布局',
+                bgColor: base.bgColor,
+                elements: JSON.parse(JSON.stringify(base.elements))
+            };
+            this.data.layouts.push(newLayout);
+            this.save();
+            return newLayout;
+        },
+        deleteLayout: function(id) {
+            if (id === 'default') return false;
+            var idx = -1;
+            for (var i = 0; i < this.data.layouts.length; i++) {
+                if (this.data.layouts[i].id === id) { idx = i; break; }
+            }
+            if (idx === -1) return false;
+            this.data.layouts.splice(idx, 1);
+            if (this.data.activeLayoutId === id) {
+                this.data.activeLayoutId = 'default';
+                this.applyLayout('default');
+            }
+            this.save();
+            return true;
+        },
+        renameLayout: function(id, newName) {
+            var layout = this.getLayout(id);
+            if (layout) { layout.name = newName; this.save(); }
+        },
+        updateBgColor: function(layoutId, color) {
+            var layout = this.getLayout(layoutId);
+            if (layout) { layout.bgColor = color; this.save(); }
+        },
+        exportActive: function() {
+            return JSON.stringify(this.getActiveLayout(), null, 2);
+        },
+        importLayout: function(json) {
+            var obj = JSON.parse(json);
+            if (!obj || !obj.elements) throw new Error('Invalid layout');
+            obj.id = 'layout_' + Date.now();
+            if (!obj.name) obj.name = '导入布局';
+            this.data.layouts.push(obj);
+            this.save();
+            return obj;
+        }
+    };
+
+    function setupSettingsPanel() {
+        var settingsBtn = $('settingsBtn');
+        var settingsPanel = $('settingsPanel');
+        var closeSettings = $('closeSettings');
+        var colorPalette = $('colorPalette');
+        var bgColorHex = $('bgColorHex');
+        var bgColorPreview = $('bgColorPreview');
+        var layoutList = $('layoutList');
+        var newLayoutBtn = $('newLayoutBtn');
+        var enterEditBtn = $('enterEditBtn');
+        var exportLayoutBtn = $('exportLayoutBtn');
+        var importLayoutBtn = $('importLayoutBtn');
+        var importFile = $('importFile');
+        var editToolbar = $('editToolbar');
+        var saveEditBtn = $('saveEditBtn');
+        var cancelEditBtn = $('cancelEditBtn');
+
+        var PRESET_COLORS = [
+            '#1a1a2e','#16213e','#0f3460','#533483',
+            '#1e1e1e','#2d2d2d','#1a3a1a','#3a1a1a',
+            '#0d1117','#161b22','#21262d','#30363d',
+            '#1a1a1a','#2c3e50','#34495e','#0b0e14'
+        ];
+
+        function setBgColor(color) {
+            var hex = color.replace('#', '');
+            document.body.style.background = '#' + hex;
+            bgColorPreview.style.background = '#' + hex;
+            bgColorHex.value = hex;
+            LayoutManager.updateBgColor(LayoutManager.data.activeLayoutId, '#' + hex);
+            colorPalette.querySelectorAll('.color-swatch').forEach(function(s) {
+                s.classList.toggle('active', s.dataset.color === '#' + hex);
+            });
+        }
+
+        function buildPalette() {
+            colorPalette.innerHTML = '';
+            PRESET_COLORS.forEach(function(color) {
+                var swatch = document.createElement('div');
+                swatch.className = 'color-swatch';
+                swatch.style.background = color;
+                swatch.dataset.color = color;
+                swatch.addEventListener('click', function() { setBgColor(color); });
+                colorPalette.appendChild(swatch);
+            });
+        }
+        buildPalette();
+
+        function renderLayoutList() {
+            layoutList.innerHTML = '';
+            LayoutManager.data.layouts.forEach(function(layout) {
+                var item = document.createElement('div');
+                item.className = 'layout-item' + (layout.id === LayoutManager.data.activeLayoutId ? ' active' : '');
+                var nameSpan = document.createElement('span');
+                nameSpan.textContent = layout.name;
+                var actions = document.createElement('div');
+                if (layout.id !== 'default') {
+                    var renameBtn = document.createElement('button');
+                    renameBtn.textContent = '重命名';
+                    renameBtn.onclick = function(e) {
+                        e.stopPropagation();
+                        var newName = prompt('新名称', layout.name);
+                        if (newName) { LayoutManager.renameLayout(layout.id, newName); renderLayoutList(); }
+                    };
+                    var delBtn = document.createElement('button');
+                    delBtn.textContent = '删除';
+                    delBtn.onclick = function(e) {
+                        e.stopPropagation();
+                        if (confirm('删除布局 "' + layout.name + '"?')) {
+                            LayoutManager.deleteLayout(layout.id);
+                            renderLayoutList();
+                        }
+                    };
+                    actions.appendChild(renameBtn);
+                    actions.appendChild(delBtn);
+                }
+                var switchBtn = document.createElement('button');
+                switchBtn.textContent = layout.id === LayoutManager.data.activeLayoutId ? '使用中' : '切换';
+                switchBtn.style.color = layout.id === LayoutManager.data.activeLayoutId ? '#4ade80' : '';
+                switchBtn.onclick = function(e) {
+                    e.stopPropagation();
+                    LayoutManager.setActiveLayout(layout.id);
+                    renderLayoutList();
+                    var active = LayoutManager.getActiveLayout();
+                    setBgColor(active.bgColor || '#1a1a2e');
+                };
+                actions.appendChild(switchBtn);
+                item.appendChild(nameSpan);
+                item.appendChild(actions);
+                layoutList.appendChild(item);
+            });
+        }
+
+        settingsBtn.addEventListener('click', function() {
+            settingsPanel.classList.add('active');
+            var active = LayoutManager.getActiveLayout();
+            setBgColor(active.bgColor || '#1a1a2e');
+            renderLayoutList();
+        });
+        closeSettings.addEventListener('click', function() { settingsPanel.classList.remove('active'); });
+        settingsPanel.addEventListener('click', function(e) { if (e.target === settingsPanel) settingsPanel.classList.remove('active'); });
+
+        bgColorHex.addEventListener('input', function() {
+            var hex = bgColorHex.value.replace(/[^0-9a-fA-F]/g, '').substring(0, 6);
+            if (hex.length === 6) setBgColor('#' + hex);
+        });
+
+        newLayoutBtn.addEventListener('click', function() {
+            var name = prompt('新布局名称', '新布局');
+            if (name) {
+                LayoutManager.createLayout(name, LayoutManager.data.activeLayoutId);
+                renderLayoutList();
+            }
+        });
+
+        exportLayoutBtn.addEventListener('click', function() {
+            var data = LayoutManager.exportActive();
+            var blob = new Blob([data], {type: 'application/json'});
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement('a');
+            a.href = url;
+            a.download = (LayoutManager.getActiveLayout().name || 'layout') + '.json';
+            a.click();
+            URL.revokeObjectURL(url);
+        });
+
+        importLayoutBtn.addEventListener('click', function() { importFile.click(); });
+        importFile.addEventListener('change', function(e) {
+            var file = e.target.files[0];
+            if (!file) return;
+            var reader = new FileReader();
+            reader.onload = function(ev) {
+                try {
+                    var imported = LayoutManager.importLayout(ev.target.result);
+                    LayoutManager.setActiveLayout(imported.id);
+                    renderLayoutList();
+                    setBgColor(imported.bgColor || '#1a1a2e');
+                    alert('导入成功');
+                } catch(err) { alert('导入失败: ' + err.message); }
+            };
+            reader.readAsText(file);
+            importFile.value = '';
+        });
+
+        var editState = {
+            active: false,
+            selectedId: null,
+            dragMode: null,
+            dragStartX: 0, dragStartY: 0,
+            elStartLeft: 0, elStartTop: 0,
+            elStartW: 0, elStartH: 0
+        };
+
+        function getEditScale() {
+            var controls = dom.controls;
+            var scaleMatch = controls.style.transform.match(/scale\(([^)]+)\)/);
+            return scaleMatch ? parseFloat(scaleMatch[1]) : 1;
+        }
+
+        function clientToInner(dx, dy) {
+            var scale = getEditScale();
+            if (state.rotated) {
+                return { dx: dy / scale, dy: -dx / scale };
+            }
+            return { dx: dx / scale, dy: dy / scale };
+        }
+
+        function removeResizeHandles(el) {
+            el.querySelectorAll('.edit-resize-handle').forEach(function(h) { h.remove(); });
+        }
+
+        function addResizeHandles(el) {
+            removeResizeHandles(el);
+            ['nw','ne','sw','se'].forEach(function(corner) {
+                var handle = document.createElement('div');
+                handle.className = 'edit-resize-handle ' + corner;
+                handle.dataset.corner = corner;
+                handle._resizeDown = function(e) {
+                    if (!editState.active) return;
+                    if (e.cancelable) e.preventDefault();
+                    e.stopPropagation();
+                    editState.dragMode = 'resize-' + corner;
+                    editState.dragStartX = e.touches ? e.touches[0].clientX : e.clientX;
+                    editState.dragStartY = e.touches ? e.touches[0].clientY : e.clientY;
+                    var computed = window.getComputedStyle(el);
+                    editState.elStartLeft = parseFloat(computed.left) || 0;
+                    editState.elStartTop = parseFloat(computed.top) || 0;
+                    editState.elStartW = parseFloat(computed.width) || el.offsetWidth;
+                    editState.elStartH = parseFloat(computed.height) || el.offsetHeight;
+                };
+                handle.addEventListener('touchstart', handle._resizeDown, {passive:false});
+                handle.addEventListener('mousedown', handle._resizeDown);
+                el.appendChild(handle);
+            });
+        }
+
+        function onEditMove(e) {
+            if (!editState.active || !editState.dragMode) return;
+            if (e.cancelable) e.preventDefault();
+            var clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            var clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            var cdx = clientX - editState.dragStartX;
+            var cdy = clientY - editState.dragStartY;
+            var inner = clientToInner(cdx, cdy);
+            var el = document.querySelector('[data-layout-id="' + editState.selectedId + '"]');
+            if (!el) return;
+            var designW = 700, designH = 378;
+            var minSize = 20;
+
+            if (editState.dragMode === 'move') {
+                var newLeft = editState.elStartLeft + inner.dx;
+                var newTop = editState.elStartTop + inner.dy;
+                var w = editState.elStartW;
+                var h = editState.elStartH;
+                newLeft = Math.max(0, Math.min(designW - w, newLeft));
+                newTop = Math.max(0, Math.min(designH - h, newTop));
+                el.style.left = newLeft + 'px';
+                el.style.top = newTop + 'px';
+                el.style.right = 'auto';
+                el.style.bottom = 'auto';
+            } else if (editState.dragMode.indexOf('resize-') === 0) {
+                var corner = editState.dragMode.substring(7);
+                var newW = editState.elStartW;
+                var newH = editState.elStartH;
+                var newL = editState.elStartLeft;
+                var newT = editState.elStartTop;
+                if (corner === 'se') {
+                    newW = Math.max(minSize, editState.elStartW + inner.dx);
+                    newH = Math.max(minSize, editState.elStartH + inner.dy);
+                } else if (corner === 'sw') {
+                    newW = Math.max(minSize, editState.elStartW - inner.dx);
+                    newH = Math.max(minSize, editState.elStartH + inner.dy);
+                    newL = editState.elStartLeft + (editState.elStartW - newW);
+                } else if (corner === 'ne') {
+                    newW = Math.max(minSize, editState.elStartW + inner.dx);
+                    newH = Math.max(minSize, editState.elStartH - inner.dy);
+                    newT = editState.elStartTop + (editState.elStartH - newH);
+                } else if (corner === 'nw') {
+                    newW = Math.max(minSize, editState.elStartW - inner.dx);
+                    newH = Math.max(minSize, editState.elStartH - inner.dy);
+                    newL = editState.elStartLeft + (editState.elStartW - newW);
+                    newT = editState.elStartTop + (editState.elStartH - newH);
+                }
+                newL = Math.max(0, Math.min(designW - newW, newL));
+                newT = Math.max(0, Math.min(designH - newH, newT));
+                el.style.width = newW + 'px';
+                el.style.height = newH + 'px';
+                el.style.left = newL + 'px';
+                el.style.top = newT + 'px';
+                el.style.right = 'auto';
+                el.style.bottom = 'auto';
+            }
+        }
+
+        function onEditEnd(e) {
+            editState.dragMode = null;
+        }
+
+        function startEditMode() {
+            editState.active = true;
+            state.editMode = true;
+            document.body.classList.add('edit-mode');
+            editToolbar.style.display = 'flex';
+            settingsPanel.classList.remove('active');
+            LAYOUT_ELEMENTS.forEach(function(id) {
+                var el = document.querySelector('[data-layout-id="' + id + '"]');
+                if (!el) return;
+                el._editDown = function(e) {
+                    if (!editState.active) return;
+                    if (e.cancelable) e.preventDefault();
+                    e.stopPropagation();
+                    editState.selectedId = id;
+                    editState.dragMode = 'move';
+                    document.querySelectorAll('.edit-selected').forEach(function(s) {
+                        s.classList.remove('edit-selected');
+                        removeResizeHandles(s);
+                    });
+                    el.classList.add('edit-selected');
+                    addResizeHandles(el);
+                    var clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                    var clientY = e.touches ? e.touches[0].clientY : e.clientY;
+                    editState.dragStartX = clientX;
+                    editState.dragStartY = clientY;
+                    var computed = window.getComputedStyle(el);
+                    editState.elStartLeft = parseFloat(computed.left) || 0;
+                    editState.elStartTop = parseFloat(computed.top) || 0;
+                    editState.elStartW = parseFloat(computed.width) || el.offsetWidth;
+                    editState.elStartH = parseFloat(computed.height) || el.offsetHeight;
+                };
+                el.addEventListener('touchstart', el._editDown, {passive:false});
+                el.addEventListener('mousedown', el._editDown);
+            });
+            document.addEventListener('touchmove', onEditMove, {passive:false});
+            document.addEventListener('mousemove', onEditMove);
+            document.addEventListener('touchend', onEditEnd, {passive:false});
+            document.addEventListener('mouseup', onEditEnd);
+        }
+
+        function stopEditMode(save) {
+            editState.active = false;
+            state.editMode = false;
+            document.body.classList.remove('edit-mode');
+            editToolbar.style.display = 'none';
+            document.querySelectorAll('.edit-selected').forEach(function(s) {
+                s.classList.remove('edit-selected');
+                removeResizeHandles(s);
+            });
+            LAYOUT_ELEMENTS.forEach(function(id) {
+                var el = document.querySelector('[data-layout-id="' + id + '"]');
+                if (!el) return;
+                if (el._editDown) {
+                    el.removeEventListener('touchstart', el._editDown);
+                    el.removeEventListener('mousedown', el._editDown);
+                    el._editDown = null;
+                }
+            });
+            document.removeEventListener('touchmove', onEditMove);
+            document.removeEventListener('mousemove', onEditMove);
+            document.removeEventListener('touchend', onEditEnd);
+            document.removeEventListener('mouseup', onEditEnd);
+            if (save) {
+                var layout = LayoutManager.getActiveLayout();
+                LAYOUT_ELEMENTS.forEach(function(id) {
+                    var el = document.querySelector('[data-layout-id="' + id + '"]');
+                    if (!el) return;
+                    var computed = window.getComputedStyle(el);
+                    var s = {};
+                    if (computed.left && computed.left !== 'auto') s.left = computed.left;
+                    if (computed.top && computed.top !== 'auto') s.top = computed.top;
+                    if (computed.right && computed.right !== 'auto') s.right = computed.right;
+                    if (computed.bottom && computed.bottom !== 'auto') s.bottom = computed.bottom;
+                    if (computed.width) s.width = computed.width;
+                    if (computed.height) s.height = computed.height;
+                    layout.elements[id] = s;
+                });
+                LayoutManager.save();
+            } else {
+                LayoutManager.applyLayout(LayoutManager.data.activeLayoutId);
+            }
+        }
+
+        enterEditBtn.addEventListener('click', startEditMode);
+        saveEditBtn.addEventListener('click', function() { stopEditMode(true); });
+        cancelEditBtn.addEventListener('click', function() { stopEditMode(false); });
     }
 
     // ========== Game Loop ==========
@@ -1402,6 +1988,8 @@ fn index_html() -> String {
             setTimeout(updateOrientation, 100);
         });
 
+        LayoutManager.init();
+        setupSettingsPanel();
         setupButtons();
         setupTriggers();
         setupDpad();
@@ -1428,5 +2016,5 @@ fn index_html() -> String {
 })();
     </script>
 </body>
-</html>"#.to_string()
+</html>"##.to_string()
 }

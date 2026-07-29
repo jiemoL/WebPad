@@ -1,20 +1,18 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::Duration;
 
-use axum::extract::Request;
-use axum::response::Redirect;
-use axum_server::tls_rustls::RustlsConfig;
 use clap::Parser;
 use rustls::ServerConfig;
 use rustls_pemfile::{certs, private_key};
 use tokio::signal;
+use tokio::sync::broadcast;
+use tokio_rustls::TlsAcceptor;
 use tracing::{error, info, warn};
 
 use webpad::auth::{AuthManager, IpBackoffManager};
 use webpad::config::Config;
 use webpad::upnp::PortMapper;
-use webpad::web::{create_router, AppState, ConnectionLimiter, GamepadHandle};
+use webpad::web::{create_router, run_server, AppState, ConnectionLimiter, GamepadHandle};
 
 /// WebPad 命令行参数
 #[derive(Parser)]
@@ -98,9 +96,11 @@ async fn main() {
     let upnp = Arc::new(PortMapper::new(config.port).await);
 
     // 构建 TLS 配置（必须在 config 被 move 到 Arc 之前）
-    let tls_config = build_tls_config(&config).await;
-    let tls_enabled = tls_config.is_some();
-    let http_redirect_port = config.http_redirect_port;
+    let tls_acceptor = if config.enable_tls {
+        build_tls_acceptor(&config).await
+    } else {
+        None
+    };
 
     // 创建共享状态
     let port = config.port;
@@ -128,51 +128,12 @@ async fn main() {
     // 启动服务器
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
 
-    if tls_enabled {
+    if tls_acceptor.is_some() {
         println!("WebPad listening on https://{}", addr);
     } else {
         println!("WebPad listening on http://{}", addr);
         warn!("TLS is disabled! Passwords will be transmitted in plaintext.");
     }
-
-    // HTTP 重定向服务器（仅在 TLS 启用且配置了重定向端口时启动）
-    let redirect_handle = if tls_enabled && http_redirect_port > 0 {
-        let redirect_addr = SocketAddr::from(([0, 0, 0, 0], http_redirect_port));
-        let redirect_app = axum::Router::new().fallback(move |req: Request| async move {
-            let host = req
-                .headers()
-                .get("host")
-                .and_then(|h| h.to_str().ok())
-                .map(|h| {
-                    if let Some(colon_pos) = h.find(':') {
-                        &h[..colon_pos]
-                    } else {
-                        h
-                    }
-                })
-                .unwrap_or("localhost");
-            let uri = req.uri();
-            let path_and_query = uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("/");
-            let redirect_url = format!("https://{}:{}{}", host, port, path_and_query);
-            Redirect::permanent(&redirect_url)
-        });
-        let handle = axum_server::Handle::new();
-        let handle_clone = handle.clone();
-        tokio::spawn(async move {
-            info!("HTTP redirect server listening on http://{}", redirect_addr);
-            if let Err(e) = axum_server::bind(redirect_addr)
-                .handle(handle_clone)
-                .serve(redirect_app.into_make_service())
-                .await
-            {
-                error!("HTTP redirect server error: {}", e);
-            }
-        });
-        println!("HTTP redirect enabled on port {} -> {}", http_redirect_port, port);
-        Some(handle)
-    } else {
-        None
-    };
 
     // 尝试 UPnP 端口映射
     if enable_upnp {
@@ -183,7 +144,7 @@ async fn main() {
                     info!("UPnP gateway found, requesting port mapping...");
                     upnp.procure_mapping();
                     if let Some(ext_addr) = upnp.current_external_address() {
-                        let scheme = if tls_enabled { "https" } else { "http" };
+                        let scheme = if tls_acceptor.is_some() { "https" } else { "http" };
                         println!("External address: {}://{}", scheme, ext_addr);
                     }
                 } else {
@@ -198,35 +159,20 @@ async fn main() {
         info!("UPnP disabled");
     }
 
-    // 使用 axum-server 启动（支持 TLS 和优雅关闭）
+    // 优雅关闭通道
+    let (shutdown_tx, shutdown_rx) = broadcast::channel::<()>(1);
+
     let shutdown_upnp = upnp.clone();
-    let handle = axum_server::Handle::new();
-    let handle_clone = handle.clone();
 
     tokio::select! {
-        result = async {
-            if let Some(tls) = tls_config {
-                axum_server::bind_rustls(addr, tls)
-                    .handle(handle_clone)
-                    .serve(app.into_make_service_with_connect_info::<SocketAddr>())
-                    .await
-            } else {
-                axum_server::bind(addr)
-                    .handle(handle_clone)
-                    .serve(app.into_make_service_with_connect_info::<SocketAddr>())
-                    .await
-            }
-        } => {
+        result = run_server(addr, app, tls_acceptor, enable_upnp, shutdown_rx) => {
             if let Err(e) = result {
                 error!("Server error: {}", e);
             }
         }
         _ = signal::ctrl_c() => {
             info!("Received Ctrl-C, shutting down gracefully...");
-            handle.graceful_shutdown(Some(Duration::from_secs(5)));
-            if let Some(redirect_h) = redirect_handle {
-                redirect_h.graceful_shutdown(Some(Duration::from_secs(2)));
-            }
+            let _ = shutdown_tx.send(());
             shutdown_upnp.deactivate();
             info!("UPnP mapping deactivated");
             println!("\nWebPad stopped.");
@@ -234,20 +180,34 @@ async fn main() {
     }
 }
 
-/// 构建 TLS 配置
+/// 构建 TLS Acceptor
 ///
 /// 优先使用用户配置的证书文件；如果未配置，则自动生成自签名证书。
-/// 返回 None 表示 TLS 禁用（当前版本始终启用 TLS）。
-async fn build_tls_config(config: &Config) -> Option<RustlsConfig> {
+/// 返回 None 表示 TLS 禁用。
+async fn build_tls_acceptor(config: &Config) -> Option<TlsAcceptor> {
     if let (Some(cert_path), Some(key_path)) = (&config.cert_path, &config.key_path) {
-        match RustlsConfig::from_pem_file(cert_path, key_path).await {
-            Ok(tls) => {
+        let cert_chain = match load_certs(cert_path) {
+            Ok(certs) => certs,
+            Err(e) => {
+                error!("Failed to load TLS certificates from {}: {}", cert_path, e);
+                return None;
+            }
+        };
+        let key = match load_key(key_path) {
+            Ok(key) => key,
+            Err(e) => {
+                error!("Failed to load TLS private key from {}: {}", key_path, e);
+                return None;
+            }
+        };
+        match create_tls_acceptor(cert_chain, key) {
+            Ok(acceptor) => {
                 info!("TLS enabled with custom certificate: {}", cert_path);
-                return Some(tls);
+                return Some(acceptor);
             }
             Err(e) => {
-                error!("Failed to load TLS certificate from {}: {}", cert_path, e);
-                println!("Warning: Failed to load TLS certificate, generating self-signed certificate instead.");
+                error!("Failed to create TLS acceptor: {}", e);
+                return None;
             }
         }
     }
@@ -256,7 +216,6 @@ async fn build_tls_config(config: &Config) -> Option<RustlsConfig> {
     info!("Generating self-signed TLS certificate...");
     match generate_self_signed_cert() {
         Ok((cert_pem, key_pem)) => {
-            // 从 PEM 字符串解析证书和私钥（内存中处理，不写磁盘）
             let cert_chain: Vec<rustls::pki_types::CertificateDer<'static>> = {
                 let mut cursor = std::io::Cursor::new(cert_pem.as_bytes());
                 let certs: Result<Vec<_>, _> = certs(&mut cursor).collect();
@@ -288,27 +247,49 @@ async fn build_tls_config(config: &Config) -> Option<RustlsConfig> {
                 }
             };
 
-            // 构建 rustls ServerConfig
-            let server_config = match ServerConfig::builder()
-                .with_no_client_auth()
-                .with_single_cert(cert_chain, key)
-            {
-                Ok(cfg) => Arc::new(cfg),
-                Err(e) => {
-                    error!("Failed to build TLS server config: {}", e);
-                    return None;
+            match create_tls_acceptor(cert_chain, key) {
+                Ok(acceptor) => {
+                    info!("TLS enabled with self-signed certificate");
+                    println!("Note: Using self-signed certificate. Browsers will show a security warning.");
+                    println!("      For production use, configure cert_path and key_path in webpad.toml");
+                    Some(acceptor)
                 }
-            };
-
-            info!("TLS enabled with self-signed certificate");
-            println!("Note: Using self-signed certificate. Browsers will show a security warning.");
-            println!("      For production use, configure cert_path and key_path in webpad.toml");
-            Some(RustlsConfig::from_config(server_config))
+                Err(e) => {
+                    error!("Failed to create TLS acceptor: {}", e);
+                    None
+                }
+            }
         }
         Err(e) => {
             error!("Failed to generate self-signed certificate: {}", e);
             None
         }
+    }
+}
+
+fn create_tls_acceptor(
+    cert_chain: Vec<rustls::pki_types::CertificateDer<'static>>,
+    key: rustls::pki_types::PrivateKeyDer<'static>,
+) -> Result<TlsAcceptor, Box<dyn std::error::Error + Send + Sync>> {
+    let server_config = ServerConfig::builder()
+        .with_no_client_auth()
+        .with_single_cert(cert_chain, key)?;
+    Ok(TlsAcceptor::from(Arc::new(server_config)))
+}
+
+fn load_certs(path: &str) -> Result<Vec<rustls::pki_types::CertificateDer<'static>>, Box<dyn std::error::Error + Send + Sync>> {
+    let cert_data = std::fs::read(path)?;
+    let mut cursor = std::io::Cursor::new(cert_data);
+    let certs: Result<Vec<_>, _> = certs(&mut cursor).collect();
+    Ok(certs?)
+}
+
+fn load_key(path: &str) -> Result<rustls::pki_types::PrivateKeyDer<'static>, Box<dyn std::error::Error + Send + Sync>> {
+    let key_data = std::fs::read(path)?;
+    let mut cursor = std::io::Cursor::new(key_data);
+    match private_key(&mut cursor)? {
+        Some(key) => Ok(key),
+        None => Err("No private key found".into()),
     }
 }
 

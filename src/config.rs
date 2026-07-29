@@ -10,7 +10,10 @@ use crate::password;
 pub struct Config {
     /// HTTPS/WSS 监听端口
     pub port: u16,
-    /// HTTP 重定向端口（0 表示禁用 HTTP 重定向）
+    /// 是否启用 TLS（HTTPS）。关闭后以纯 HTTP 模式运行。
+    #[serde(default = "default_enable_tls")]
+    pub enable_tls: bool,
+    /// HTTP 重定向端口（已废弃，保留用于向后兼容）
     #[serde(default)]
     pub http_redirect_port: u16,
     /// 连接密码（明文，仅用于配置文件和显示；运行时使用 password_hash）
@@ -49,6 +52,10 @@ fn default_heartbeat() -> u64 {
     30
 }
 
+fn default_enable_tls() -> bool {
+    true
+}
+
 fn default_max_auth_failures() -> u32 {
     5
 }
@@ -73,7 +80,8 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             port: 8443,
-            http_redirect_port: 8080,
+            enable_tls: true,
+            http_redirect_port: 0,
             password: String::new(),
             cert_path: None,
             key_path: None,
@@ -92,12 +100,15 @@ impl fmt::Display for Config {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "WebPad Config:\n  HTTPS Port: {}\n  HTTP Redirect: {}\n  Auth: {}\n  UPnP: {}\n  TLS: {}\n  Heartbeat: {}s\n  Max Auth Failures: {}\n  Auth Backoff: {}ms - {}ms\n  Max Connections: {}\n  Max Unauth Connections: {}",
+            "WebPad Config:\n  Port: {}\n  TLS: {}\n  Auth: {}\n  UPnP: {}\n  Heartbeat: {}s\n  Max Auth Failures: {}\n  Auth Backoff: {}ms - {}ms\n  Max Connections: {}\n  Max Unauth Connections: {}",
             self.port,
-            if self.http_redirect_port == 0 { "disabled".to_string() } else { self.http_redirect_port.to_string() },
+            if self.enable_tls { 
+                format!("enabled ({})", self.cert_path.as_deref().unwrap_or("self-signed"))
+            } else { 
+                "disabled (HTTP mode)".to_string() 
+            },
             if self.password.is_empty() { "disabled" } else { "enabled" },
             self.enable_upnp,
-            self.cert_path.as_deref().unwrap_or("self-signed"),
             self.heartbeat_timeout_secs,
             self.max_auth_failures,
             self.auth_backoff_base_ms,
@@ -156,15 +167,23 @@ impl Config {
                         // 迁移：旧配置可能没有 password 字段但有 password_hash
                         // （当前版本只用 password，password_hash 已移除）
 
-                        // 迁移 v1 -> v2：端口配置迁移
-                        // 旧版默认 port=8080 且无 http_redirect_port 字段
-                        // 新版默认 port=8443, http_redirect_port=8080
-                        // 如果检测到 port=8080 且 http_redirect_port=0（新字段默认值），
-                        // 说明是旧配置，自动迁移到新端口布局
-                        if config.port == 8080 && config.http_redirect_port == 0 {
+                        // 迁移 v1 -> v2：单端口合并
+                        // 旧版有 port + http_redirect_port，新版合并为 port + enable_tls
+                        // 如果 http_redirect_port > 0，说明之前是双端口模式，TLS 已启用
+                        // 迁移后 enable_tls = true，http_redirect_port = 0（已废弃）
+                        if config.http_redirect_port > 0 && !config.enable_tls {
+                            config.enable_tls = true;
+                            config.http_redirect_port = 0;
+                            eprintln!("Config migrated: merged to single port mode with TLS enabled");
+                            if let Err(e) = config.save() {
+                                eprintln!("Failed to save migrated config: {}", e);
+                            }
+                        }
+
+                        // 迁移旧版默认 port=8080
+                        if config.port == 8080 && config.enable_tls {
                             config.port = 8443;
-                            config.http_redirect_port = 8080;
-                            eprintln!("Config migrated: port 8080 -> 8443 (HTTPS), HTTP redirect on 8080");
+                            eprintln!("Config migrated: port 8080 -> 8443 (HTTPS)");
                             if let Err(e) = config.save() {
                                 eprintln!("Failed to save migrated config: {}", e);
                             }
@@ -235,9 +254,15 @@ mod tests {
     }
 
     #[test]
-    fn default_config_has_http_redirect_port_8080() {
+    fn default_config_has_tls_enabled() {
         let config = Config::default();
-        assert_eq!(config.http_redirect_port, 8080);
+        assert!(config.enable_tls);
+    }
+
+    #[test]
+    fn default_config_has_no_redirect_port() {
+        let config = Config::default();
+        assert_eq!(config.http_redirect_port, 0);
     }
 
     #[test]
@@ -257,7 +282,7 @@ mod tests {
         let config = Config::default();
         let display = format!("{}", config);
         assert!(display.contains("8443"));
-        assert!(display.contains("disabled"));
+        assert!(display.contains("enabled"));
     }
 
     #[test]

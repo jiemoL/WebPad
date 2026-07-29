@@ -7,9 +7,9 @@ fn default_config_uses_port_8443() {
 }
 
 #[test]
-fn default_config_has_http_redirect_port_8080() {
+fn default_config_has_no_redirect_port() {
     let config = webpad::config::Config::default();
-    assert_eq!(config.http_redirect_port, 8080);
+    assert_eq!(config.http_redirect_port, 0);
 }
 
 #[test]
