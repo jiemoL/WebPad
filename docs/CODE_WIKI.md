@@ -37,9 +37,9 @@
 |------|------|
 | 后端语言 | Rust (Edition 2021) |
 | Web 框架 | Axum 0.8 (Tokio 运行时) |
-| Web 服务器 | axum-server 0.7 (TLS 支持) |
+| Web 服务器 | hyper 1 + hyper-util（单连接模式） |
 | 虚拟手柄 | vigem-client 0.1.4 (ViGEmBus) |
-| TLS/证书 | rustls 0.23 + rcgen 0.13 |
+| TLS/证书 | tokio-rustls 0.26 + rustls 0.23 + rcgen 0.13 |
 | 密码哈希 | argon2 0.5 (Argon2id) |
 | 序列化 | serde + serde_json + toml |
 | UPnP | portmapper 0.19 |
@@ -66,33 +66,43 @@
 │                    服务端 (Windows PC)                          │
 │                                                            │
 │  ┌──────────────────────────────────────────────────────┐  │
-│  │                    Axum 服务器                       │  │
-│  │  ┌──────────┐  ┌──────────┐  ┌──────────────┐    │  │
-│  │  │  TLS 层  │  │ HTTP 重定向│  │  WebSocket   │    │  │
-│  │  └────┬─────┘  └────┬─────┘  └──────┬───────┘    │  │
-│  │       │               │                │               │  │
-│  │  ┌────▼───────────────▼────────────────▼───────────┐   │  │
-│  │  │          Web 模块 (web/)                    │   │  │
-│  │  │  - 路由 / 静态页面 / WS 升级        │   │  │
-│  │  │  - 连接限制 / 认证 / 消息处理          │   │  │
-│  │  └───────────────┬──────────────────────┘   │  │
-│  └──────────────────┼──────────────────────────┘  │
-│                     │                             │
-│  ┌──────────────────▼──────────────────────┐    │
-│  │         业务层                             │    │
-│  │  ┌─────────┐ ┌─────────┐ ┌──────────┐ │    │
-│  │  │  Auth   │ │ Gamepad │ │  UPnP    │ │    │
-│  │  │ Manager │ │ Manager │ │  Mapper  │ │    │
-│  │  └────┬────┘ └────┬────┘ └─────┬────┘ │    │
-│  └───────┼────────────┼──────────────┼──────┘    │
-│          │            │              │           │
-│  ┌───────▼────────────▼──────────────▼──────┐    │
-│  │         外部依赖                          │    │
-│  │  ┌──────────┐ ┌──────────┐ ┌──────────┐ │    │
-│  │  │ Argon2   │ │ ViGEmBus │ │ portmapper│ │    │
-│  │  └──────────┘ └──────────┘ └──────────┘ │    │
-│  └──────────────────────────────────────────┘    │
-└─────────────────────────────────────────────────┘
+│  │              单端口服务器 (hyper + tokio-rustls)         │  │
+│  │                                                      │  │
+│  │  ┌──────────────────────────────────────────────┐    │  │
+│  │  │         协议嗅探 (Protocol Sniffing)          │    │  │
+│  │  │  peek 首字节: 0x16=TLS / 其他=HTTP 明文        │    │  │
+│  │  └──────┬─────────────────────────────┬───────────┘    │  │
+│  │         │ TLS                        │ HTTP 明文        │  │
+│  │         ▼                            ▼                 │  │
+│  │  ┌──────────────┐          ┌─────────────────────┐     │  │
+│  │  │ TlsAcceptor  │          │ enable_tls=true?    │     │  │
+│  │  │ (rustls)     │          │  Y: 301→HTTPS       │     │  │
+│  │  └──────┬───────┘          │  N: HTTP 服务       │     │  │
+│  │         │                  └─────────┬───────────┘     │  │
+│  │         └──────────┬─────────────────┘                 │  │
+│  │                    ▼                                    │  │
+│  │  ┌──────────────────────────────────────────────┐     │  │
+│  │  │          Web 模块 (web/)                     │     │  │
+│  │  │  - 路由 / 静态页面 / WS 升级                 │     │  │
+│  │  │  - 连接限制 / 认证 / 消息处理                │     │  │
+│  │  └───────────────┬──────────────────────────────┘     │  │
+│  └──────────────────┼──────────────────────────────────┘  │
+│                     │                                     │
+│  ┌──────────────────▼──────────────────────┐              │
+│  │         业务层                             │              │
+│  │  ┌─────────┐ ┌─────────┐ ┌──────────┐   │              │
+│  │  │  Auth   │ │ Gamepad │ │  UPnP    │   │              │
+│  │  │ Manager │ │ Manager │ │  Mapper  │   │              │
+│  │  └────┬────┘ └────┬────┘ └─────┬────┘   │              │
+│  └───────┼──────────┼────────────┼──────┘              │
+│          │          │            │                       │
+│  ┌───────▼──────────▼────────────▼──────┐               │
+│  │         外部依赖                          │               │
+│  │  ┌──────────┐ ┌──────────┐ ┌──────────┐│               │
+│  │  │ Argon2   │ │ ViGEmBus │ │ portmapper││               │
+│  │  └──────────┘ └──────────┘ └──────────┘│               │
+│  └──────────────────────────────────────────┘               │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 ### 分层设计
@@ -100,7 +110,7 @@
 | 层级 | 职责 | 主要文件 |
 |------|------|----------|
 | 入口层 | 程序启动、CLI 解析、服务器生命周期 | [main.rs](file:///e:/项目/WebPad/src/main.rs) |
-| Web 层 | HTTP/WS 服务、路由、连接管理、消息处理 | [web/server.rs](file:///e:/项目/WebPad/src/web/server.rs), [web/handler.rs](file:///e:/项目/WebPad/src/web/handler.rs) |
+| Web 层 | 协议嗅探、HTTP/WS 服务、路由、连接管理、消息处理 | [web/server.rs](file:///e:/项目/WebPad/src/web/server.rs), [web/handler.rs](file:///e:/项目/WebPad/src/web/handler.rs) |
 | 业务层 | 认证、手柄管理、UPnP 映射 | [auth.rs](file:///e:/项目/WebPad/src/auth.rs), [gamepad/](file:///e:/项目/WebPad/src/gamepad/), [upnp/](file:///e:/项目/WebPad/src/upnp/) |
 | 协议层 | 消息类型定义、状态转换 | [protocol.rs](file:///e:/项目/WebPad/src/protocol.rs), [gamepad/types.rs](file:///e:/项目/WebPad/src/gamepad/types.rs) |
 | 配置层 | 配置加载/保存、默认值、迁移 | [config.rs](file:///e:/项目/WebPad/src/config.rs) |
@@ -117,10 +127,10 @@
 **职责**:
 - 命令行参数解析（clap）
 - 配置文件加载与保存
-- TLS 配置构建（自定义证书或自签名证书）
-- HTTP 重定向服务器启动
+- TLS Acceptor 构建（自定义证书或自签名证书）
+- 单端口服务器启动（协议嗅探模式）
 - UPnP 端口映射初始化
-- 主服务器启动与优雅关闭
+- 优雅关闭（broadcast 通道）
 - Ctrl-C 信号处理
 
 **关键函数**:
@@ -128,7 +138,10 @@
 | 函数 | 说明 |
 |------|------|
 | `main()` | 程序主入口，异步运行时启动 |
-| `build_tls_config()` | 构建 TLS 配置，优先用户证书，回退自签名 |
+| `build_tls_acceptor()` | 构建 TlsAcceptor，优先用户证书，回退自签名 |
+| `create_tls_acceptor()` | 从证书链和私钥创建 TlsAcceptor |
+| `load_certs()` | 从 PEM 文件加载证书链 |
+| `load_key()` | 从 PEM 文件加载私钥 |
 | `generate_self_signed_cert()` | 使用 rcgen 生成自签名证书（localhost, 127.0.0.1） |
 
 **启动流程**:
@@ -138,11 +151,11 @@
 4. CLI 参数覆盖配置
 5. 确保密码存在（自动生成 16 位随机密码）
 6. 创建认证管理器、手柄管理器、UPnP 映射器
-7. 构建 TLS 配置
-8. 启动 HTTP 重定向服务器（如启用）
+7. 构建 TLS Acceptor（如 `enable_tls = true`）
+8. 创建 broadcast 通道用于优雅关闭
 9. 尝试 UPnP 端口映射
-10. 启动主 HTTPS/WSS 服务器
-11. 等待 Ctrl-C 信号，优雅关闭
+10. 启动单端口服务器（`run_server`），协议嗅探处理 HTTP/HTTPS
+11. 等待 Ctrl-C 信号，通过 broadcast 通知服务器关闭
 
 ---
 
@@ -157,6 +170,7 @@
 - 应用共享状态 (`AppState`)
 - 连接数限制器 (`ConnectionLimiter`)
 - 跨平台手柄句柄封装 (`GamepadHandle`)
+- **协议嗅探服务器**（单端口同时处理 HTTP 和 HTTPS）
 
 **关键类型**:
 
@@ -166,6 +180,22 @@
 | `ConnectionLimiter` | 连接数限制器，双 Semaphore（总连接 + 未认证连接） |
 | `GamepadHandle` | 跨平台手柄句柄，Windows 上有实际实现，其他平台为空 |
 
+**关键函数**:
+
+| 函数 | 说明 |
+|------|------|
+| `run_server()` | 单端口服务器主循环，`tokio::select!` 监听新连接和关闭信号 |
+| `handle_connection()` | 处理单个 TCP 连接：peek 首字节嗅探协议，分发 TLS/HTTP |
+| `create_router()` | 创建 Axum 路由（`/` 首页，`/ws` WebSocket 升级） |
+| `security_headers_middleware()` | 添加安全响应头（HSTS、CSP、X-Frame-Options 等） |
+
+**协议嗅探机制**:
+- 使用 `TcpStream::peek()` 读取前 5 字节，不消费数据
+- TLS ClientHello 检测：首字节 `0x16`（Handshake），第二字节 `0x03`/`0x02`（TLS 版本）
+- TLS 连接：`TlsAcceptor.accept()` 升级为 TLS 流，再通过 `hyper::server::conn::http1` 处理
+- HTTP 明文 + TLS 启用：返回 `301 Moved Permanently` 重定向到 HTTPS
+- HTTP 明文 + TLS 禁用：直接通过 `hyper::server::conn::http1` 以纯 HTTP 模式服务
+
 **ConnectionLimiter 设计**:
 - 两个独立的 `tokio::sync::Semaphore`：
   - `total`: 总并发 WebSocket 连接数（默认 8）
@@ -173,6 +203,10 @@
 - `try_acquire_total()` / `try_acquire_unauth()`: 非阻塞获取 permit
 - permit 持有到连接结束，认证成功后释放 unauth permit
 - 超出限制返回 503，不进入 WebSocket 握手
+
+**优雅关闭**:
+- 使用 `tokio::sync::broadcast` 通道传递关闭信号
+- `run_server()` 在 `select!` 中监听 `shutdown.recv()`，收到后退出主循环
 
 **路由表**:
 
@@ -309,12 +343,13 @@
 
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `port` | u16 | 8443 | HTTPS/WSS 监听端口 |
-| `http_redirect_port` | u16 | 8080 | HTTP 重定向端口（0 禁用） |
-| `password` | String | "" | 连接密码（明文存储） |
-| `cert_path` | Option\<String\> | None | TLS 证书路径 |
+| `port` | u16 | 8443 | 单端口监听端口（同时处理 HTTP/HTTPS） |
+| `enable_tls` | bool | true | 是否启用 TLS。设为 false 则以纯 HTTP 模式运行 |
+| `http_redirect_port` | u16 | 0 | （已废弃）保留用于向后兼容，不影响运行 |
+| `password` | String | "" | 连接密码（明文存储，运行时使用哈希） |
+| `cert_path` | Option\<String\> | None | TLS 证书路径（None 则自动生成自签名） |
 | `key_path` | Option\<String\> | None | TLS 私钥路径 |
-| `enable_upnp` | bool | true | 是否启用 UPnP |
+| `enable_upnp` | bool | false | 是否启用 UPnP |
 | `heartbeat_timeout_secs` | u64 | 30 | 心跳超时秒数 |
 | `max_auth_failures` | u32 | 5 | 最大认证失败次数 |
 | `auth_backoff_base_ms` | u64 | 500 | 认证退避初始毫秒 |
@@ -322,11 +357,10 @@
 | `max_connections` | usize | 8 | 最大并发连接数 |
 | `max_unauth_connections` | usize | 3 | 最大未认证连接数 |
 
-**配置迁移 (v1 → v2)**:
-- 检测条件：`port == 8080 && http_redirect_port == 0`
-- 迁移结果：`port = 8443, http_redirect_port = 8080`
+**配置迁移**:
+- **v1 → v2（单端口合并）**：检测 `http_redirect_port > 0 && !enable_tls`，迁移为 `enable_tls = true, http_redirect_port = 0`
+- **旧版端口迁移**：检测 `port == 8080 && enable_tls`，迁移为 `port = 8443`
 - 迁移后自动保存
-- 背景：旧版默认 HTTP 8080，新版默认 HTTPS 8443 + HTTP 重定向 8080
 
 **配置文件位置**: 可执行文件同目录下的 `webpad.toml`
 
@@ -492,6 +526,9 @@
 - 响应式缩放
 - FPS 显示
 - 震动反馈（navigator.vibrate）
+- **编辑模式**：自定义手柄布局（拖拽移动、角落手柄调整大小、背景颜色调色板）
+- **跨浏览器调色板**：16 色预设色块 + Hex 文本输入 + 颜色预览，替代原生 `<input type="color">`
+- **手机竖屏旋转适配**：`clientToInner()` 函数转换视口坐标到内部坐标系
 
 **心跳**:
 - 客户端每 5 秒发送一次 `heartbeat` 消息
@@ -511,6 +548,7 @@ pub struct AppState {
     pub upnp: Arc<PortMapper>,
     pub config: Arc<Config>,
     pub connection_limiter: Arc<ConnectionLimiter>,
+    pub ip_backoff: Arc<IpBackoffManager>,
 }
 ```
 
@@ -556,21 +594,22 @@ handle_socket()
 
 ### 1. 启动流程
 
-详见 [main.rs](file:///e:/项目/WebPad/src/main.rs#L38-L222)
+详见 [main.rs](file:///e:/项目/WebPad/src/main.rs#L38-L181)
 
-1. CLI 解析 → 配置加载 → 密码生成 → 各管理器初始化 → TLS 配置 → 服务器启动
+1. CLI 解析 → 配置加载 → 密码生成 → 各管理器初始化 → TLS Acceptor 构建 → 单端口服务器启动
 
 ### 2. 连接建立流程
 
-详见 [web/handler.rs](file:///e:/项目/WebPad/src/web/handler.rs#L50-L115)
+详见 [web/server.rs](file:///e:/项目/WebPad/src/web/server.rs#L119-L215) 和 [web/handler.rs](file:///e:/项目/WebPad/src/web/handler.rs)
 
 1. 客户端访问 `https://host:port/` 加载页面
-2. 页面 JS 连接 `wss://host:port/ws`
-3. 服务端检查总连接限制 → 检查预认证 token → 检查未认证连接限制
-4. WebSocket 握手成功，发送 `connected` 消息
-5. 客户端发送 `auth_request` 进行密码认证
-6. 认证成功，发送 `auth_success`（带 token），创建虚拟手柄
-7. 客户端开始发送 `gamepad_state` 和 `heartbeat`
+2. 服务端 `handle_connection()` 协议嗅探，TLS 流量升级为 HTTPS
+3. 页面 JS 连接 `wss://host:port/ws`
+4. 服务端检查总连接限制 → 检查预认证 token → 检查未认证连接限制
+5. WebSocket 握手成功，发送 `connected` 消息
+6. 客户端发送 `auth_request` 进行密码认证
+7. 认证成功，发送 `auth_success`（带 token），创建虚拟手柄
+8. 客户端开始发送 `gamepad_state` 和 `heartbeat`
 
 ### 3. 手柄状态同步流程
 
@@ -592,8 +631,8 @@ handle_socket()
 ### 5. 优雅关闭流程
 
 1. 收到 Ctrl-C 信号
-2. 主服务器 graceful_shutdown（5 秒超时）
-3. 重定向服务器 graceful_shutdown（2 秒超时）
+2. 通过 broadcast 通道发送关闭信号到 `run_server`
+3. `run_server` 主循环退出，停止接受新连接
 4. UPnP 映射 deactivate
 5. 各连接断开时清理资源（手柄销毁、session 移除、permit 释放）
 
@@ -605,9 +644,9 @@ handle_socket()
 
 ```toml
 port = 8443
-http_redirect_port = 8080
+enable_tls = true                 # 设为 false 可禁用 TLS，以纯 HTTP 模式运行
 password = "your_password_here"
-# cert_path = "path/to/cert.pem"
+# cert_path = "path/to/cert.pem"  # 留空则自动生成自签名证书
 # key_path = "path/to/key.pem"
 enable_upnp = true
 heartbeat_timeout_secs = 30
@@ -638,24 +677,33 @@ OPTIONS:
 
 ### TLS 配置
 
-**模式 1：自签名证书（默认）**
-- 自动生成，包含 localhost 和 127.0.0.1
+**模式 1：TLS 启用（默认，自签名证书）**
+- `enable_tls = true`，不配置 `cert_path`/`key_path`
+- 自动生成自签名证书，包含 localhost 和 127.0.0.1
 - 浏览器会显示安全警告
 - 适合局域网使用
 
-**模式 2：自定义证书**
-- 在配置文件中设置 `cert_path` 和 `key_path`
+**模式 2：TLS 启用（自定义证书）**
+- `enable_tls = true`，配置 `cert_path` 和 `key_path`
 - PEM 格式
 - 适合生产环境或有域名的情况
+
+**模式 3：TLS 禁用（纯 HTTP）**
+- `enable_tls = false`
+- 以纯 HTTP 模式运行，不生成证书
+- 密码以明文传输，仅适合可信网络环境
+
+> 单端口模式下，启用 TLS 时收到的 HTTP 请求会自动返回 301 重定向到 HTTPS。
 
 ---
 
 ## 安全机制
 
-### 1. TLS 加密
-- 默认启用 HTTPS/WSS
-- HTTP 请求自动重定向到 HTTPS（301 永久重定向）
-- 密码和手柄数据加密传输
+### 1. TLS 加密与单端口协议嗅探
+- 单端口同时处理 HTTP 和 HTTPS 流量（协议嗅探）
+- 默认启用 TLS（`enable_tls = true`），保护密码和数据传输
+- 启用 TLS 时，HTTP 请求自动重定向到 HTTPS（301 永久重定向）
+- 可通过 `enable_tls = false` 禁用 TLS，以纯 HTTP 模式运行
 
 ### 2. 密码认证
 - Argon2id 密码哈希
@@ -698,7 +746,7 @@ main.rs
   ├── upnp/
   │     └── mapper.rs
   └── web/
-        ├── server.rs
+        ├── server.rs (run_server, handle_connection, protocol sniffing)
         │     ├── auth.rs
         │     ├── config.rs
         │     └── upnp/mapper.rs
@@ -716,13 +764,19 @@ main.rs
 |------|------|------|
 | tokio | 1 (full) | 异步运行时 |
 | axum | 0.8 (ws) | Web 框架 |
-| axum-server | 0.7 (tls-rustls) | TLS 服务器 |
+| hyper | 1 | HTTP/1.1 连接处理 |
+| hyper-util | 0.1 (tokio, server, service) | hyper 工具（TokioIo、TowerToHyperService） |
+| tokio-rustls | 0.26 | 异步 TLS |
 | serde | 1 (derive) | 序列化/反序列化 |
 | serde_json | 1 | JSON 序列化 |
 | vigem-client | 0.1.4 | ViGEmBus 绑定 |
 | portmapper | 0.19 | UPnP 端口映射 |
 | rustls | 0.23 | TLS 实现 |
+| rustls-pemfile | 2 | PEM 证书解析 |
 | rcgen | 0.13 | 自签名证书生成 |
+| http-body-util | 0.1 | HTTP body 工具 |
+| http-body | 1 | HTTP body trait |
+| bytes | 1 | 字节缓冲 |
 | tracing | 0.1 | 日志框架 |
 | tracing-subscriber | 0.3 | 日志订阅者 |
 | rand | 0.8 | 随机数生成 |
@@ -859,7 +913,7 @@ WebPad/
 │   │   └── mapper.rs        # UPnP 端口映射
 │   └── web/
 │       ├── mod.rs           # Web 模块导出
-│       ├── server.rs        # 服务器与路由
+│       ├── server.rs        # 协议嗅探服务器、路由、状态
 │       └── handler.rs       # 请求与消息处理
 ├── tests/                   # 集成测试
 ├── Cargo.toml               # 项目配置

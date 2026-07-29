@@ -14,8 +14,8 @@
   - **移动端友好的 Web 界面** — 触屏手柄，支持摇杆、扳机和按键
 - 🔐 **Secure Authentication** — Argon2id password hashing with exponential backoff against brute force
   - **安全认证** — Argon2id 密码哈希，指数退抵御暴力破解
-- 🔒 **TLS by Default** — HTTPS/WSS encryption, HTTP auto-redirects to HTTPS
-  - **默认启用 TLS** — HTTPS/WSS 加密传输，HTTP 自动重定向到 HTTPS
+- 🔒 **Single-Port HTTP/HTTPS** — Protocol sniffing serves both on one port; HTTP auto-redirects to HTTPS when TLS is enabled
+  - **单端口 HTTP/HTTPS** — 协议嗅探单端口同时处理 HTTP/HTTPS；启用 TLS 时 HTTP 自动重定向到 HTTPS
 - ❤️ **Heartbeat Detection** — Automatic disconnection for inactive clients
   - **心跳检测** — 自动断开不活跃的客户端连接
 - 🌐 **UPnP Port Mapping** — Automatic port forwarding for external access
@@ -31,9 +31,9 @@
 |-------------------|-------------------|
 | Language / 语言 | Rust (Edition 2021) |
 | Web Framework / Web 框架 | Axum 0.8 |
-| Web Server / Web 服务器 | axum-server 0.7 (TLS) |
+| Web Server / Web 服务器 | hyper 1 + hyper-util (per-connection) |
 | Virtual Gamepad / 虚拟手柄 | ViGEmClient 0.1.4 |
-| TLS | rustls + rcgen |
+| TLS | tokio-rustls 0.26 + rustls 0.23 + rcgen 0.13 |
 | Password Hashing / 密码哈希 | Argon2id |
 | Serialization / 序列化 | serde + serde_json |
 
@@ -102,9 +102,9 @@ The configuration file `webpad.toml` is created in the same directory as the exe
 
 ```toml
 port = 8443
-http_redirect_port = 8080
+enable_tls = true                 # 设为 false 可禁用 TLS，以纯 HTTP 模式运行
 password = "your_password_here"  # 连接密码
-# cert_path = "path/to/cert.pem"  # TLS 证书路径
+# cert_path = "path/to/cert.pem"  # TLS 证书路径（留空则自动生成自签名证书）
 # key_path = "path/to/key.pem"    # TLS 私钥路径
 enable_upnp = true
 heartbeat_timeout_secs = 30
@@ -146,12 +146,16 @@ Web 界面提供以下功能：
 - Password authentication dialog / 密码认证对话框
 - Connection status indicator / 连接状态指示
 - Automatic reconnection with exponential backoff / 指数退避自动重连
+- Edit mode: drag, resize, recolor controls / 编辑模式：拖拽、调整大小、修改控件颜色
+- Portrait mode rotation support / 竖屏模式旋转支持
 
 ---
 
 ## Security / 安全机制
 
-- TLS encryption enabled by default / 默认启用 TLS 加密
+- Single-port HTTP/HTTPS with protocol sniffing / 单端口 HTTP/HTTPS 协议嗅探
+- TLS encryption enabled by default (configurable via `enable_tls`) / 默认启用 TLS 加密（可通过 `enable_tls` 配置）
+- HTTP requests auto-redirect to HTTPS (301) when TLS is enabled / 启用 TLS 时 HTTP 请求自动重定向到 HTTPS（301）
 - Argon2id password hashing (no SHA-256 fallback for new hashes) / Argon2id 密码哈希（新哈希不降级到 SHA-256）
 - Connection limiting (max 8 total, 3 unauthenticated) / 连接数限制（最多 8 个总连接，3 个未认证连接）
 - Authentication failure exponential backoff (500ms - 10s) / 认证失败指数退避（500毫秒 - 10秒）
@@ -179,7 +183,7 @@ src/
 │   └── mapper.rs        # UPnP port mapping / UPnP 端口映射
 └── web/
     ├── mod.rs           # Module exports / 模块导出
-    ├── server.rs        # Axum router and state / Axum 路由与状态
+    ├── server.rs        # Protocol sniffing server, router, and state / 协议嗅探服务器、路由与状态
     └── handler.rs       # HTTP/WebSocket handlers / HTTP/WebSocket 处理器
 ```
 
